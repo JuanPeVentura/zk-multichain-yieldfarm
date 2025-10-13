@@ -93,16 +93,17 @@ contract WormoleImplementation is IAmbImplementation {
 
         // Decode the payload to extract the message
         message = abi.decode(payload, (Message));
+        uint8 t = message.msgType;
 
-        if(message.msgType != 0 /** It's a operation */) {
+        if(t != 0 /** It's a operation */ && t != 2) {
             /** @task should implement function that return multiChainVault, passing the chainID */
             IMultiChainVault(address(0)).processOp(message, sourceChain);
-        }
+        } else if(t == 2) {}
 
         // Example use of sourceChain for logging
         if (sourceChain != 0) {
             emit SourceChainLogged(sourceChain);
-        }
+        } 
 
         // Emit an event with the received message
         emit MessageReceived(message);
