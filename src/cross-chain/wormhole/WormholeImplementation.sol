@@ -98,7 +98,9 @@ contract WormoleImplementation is IAmbImplementation {
         if(t != 0 /** It's a operation */ && t != 2) {
             /** @task should implement function that return multiChainVault, passing the chainID */
             IMultiChainVault(address(0)).processOp(message, sourceChain);
-        } else if(t == 2) {}
+        } else if(t == 2) {
+            
+        }
 
         // Example use of sourceChain for logging
         if (sourceChain != 0) {
