@@ -79,6 +79,13 @@ contract VaultDepositor is ERC4626, AccessControl{
         }
     }
 
+    /**
+     * 
+     * @param amount The amount of tokens to deposit in token
+     * @param token  The token that the user have to send
+     * @param receiver The receiver of the shares
+     */
+
     function deposit(uint256 amount,address token ,address receiver) public  override {
         if(!isTokenWhitelisted) {
             revert(); // @task create custom error
@@ -112,10 +119,16 @@ contract VaultDepositor is ERC4626, AccessControl{
         });
         bytes memory payload = abi.encode(message);
         IAmbImplementation(actualAmbImplementation).sendMessage(chainId, address(0), payload); // this is the modular implementation, it's brings
-
-    
     }
+
+
+
     //Should be called once the cross-chain message is processed on the other chain
+    function finalizeDeposit(bytes memory payload,
+        bytes[] memory,
+        bytes32 sourceAddress,
+        uint16 sourceChain) {}
+
 
     function whitelistToken(address token, bool whitelist) external onlyOwner(msg.sender) {
         if(whitelist){
