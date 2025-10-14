@@ -99,12 +99,14 @@ contract WormoleImplementation is IAmbImplementation {
         message = abi.decode(payload, (Message));
         uint8 t = message.msgType;
 
-        if(t != 0 /** It's a operation */ && t != 2) {
+        if(t != 0 /** It's a operation */ && t != 2 && t != 4) {
             /** @task should implement function that return multiChainVault, passing the chainID */
             address multiChainVault = IMultiChainVaultFactory(factory).chainIdToVault(message.sourceChain);
             IMultiChainVault(multiChainVault).processOp(message, sourceChain);
         } else if(t == 2) {
             IVaultDepositor(vaultDepositor).finalizeDeposit(payload,sourceAddress, sourceChain);
+        } else if(t == 4) {
+            IVaultDepositor(vaultDepositor).finalizeWithdraw(payload,sourceAddress, sourceChain);
         }
 
         // Example use of sourceChain for logging

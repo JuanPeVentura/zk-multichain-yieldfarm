@@ -35,6 +35,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
      */
     uint16 actualChainId;
 
+
     uint256 constant MIN_AMOUNT = 1e6;
     uint256 constant TOTAL_RATIO = 100;
 
@@ -50,19 +51,20 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
 
 
+    address feeReceiver;
+    uint256 fee;
+
+
     //** Custom errors */
 
     // write custom errors here
+    error InvalidFeeReceiver();
 
 
     //** Modifiers */
 
-    modifier onlyOwner(address account) {
-        if(!hasRole(OWNER_ROLE, account)) {
-            revert();
-        }
-        _;
-    }
+
+
 
     modifier onlyAmbImplementation(address account) {
         if(account != actualAmbImplementation) {
@@ -70,6 +72,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         }
         _;
     }
+    
 
     constructor(address[] memory _owners, uint16 _initialChainId ,address _factory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router) ERC4626(IERC20(_asset)) ERC20("Vault Depositor", "vDEPOSIT") {
         factory = IMultiChainVaultFactory(_factory);
@@ -105,13 +108,17 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
 
 
         // Swaping token for the vault (address this) asset
+        IERC20(token).approve(address(uniswapV2Router), amount);
         address[] memory path = new address[](2);
         path[0] = token;
         path[1] = asset();
-        uniswapV2Router.swapExactTokensForTokens(amount, 0, path, address(this), block.timestamp);
+        uint256[] memory amounts = uniswapV2Router.swapExactTokensForTokens(amount, 0, path, address(this), block.timestamp);
+        uint256 swappedAmount = amounts[1];
 
 
         // Bridging tokens using wormhole 
+        //@task maybe here would be better to approve address(this).balance of the asset()
+        IERC20(asset()).approve(address(tokenBridge), swappedAmount);
         tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
 
         // Send croos chain payload to dst chain using some amb implementation
@@ -132,13 +139,16 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     //Should be called once the cross-chain message is processed on the other chain
     function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation(msg.sender) {
         Message memory message = abi.decode(payload, (Message));
+        if(message.msgType != 2) {
+            revert();
+        }
         address msgSourceUser = message.sourceUser;
         uint256 amount = message.amount;
         _mint(msgSourceUser, amount);
     }
 
 
-    function whitelistToken(address token, bool whitelist) external onlyOwner(msg.sender) {
+    function whitelistToken(address token, bool whitelist) external onlyRole(OWNER_ROLE) {
         if(whitelist){
             require(isTokenWhitelisted[token] == false);
             isTokenWhitelisted[token] = true;
@@ -149,12 +159,81 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         isTokenWhitelisted[token] = false;
     }
 
-    function setChainid(uint16 _chainid) external onlyOwner(msg.sender) {
+    function setChainid(uint16 _chainid) external onlyRole(OWNER_ROLE) {
         if(actualChainId == _chainid){
             return;
         }
         
         actualChainId = _chainid;
+    }
+
+    function setFeeReceiver(address _newFeeReceiver) external onlyRole(OWNER_ROLE) {
+        if(_newFeeReceiver == address(0)) revert InvalidFeeReceiver();
+        feeReceiver = _newFeeReceiver;
+    }
+
+
+    //@task this is going to be managed by the dao
+    function setFee(uint256 _newFee) external onlyRole(OWNER_ROLE) {
+        if(_newFee > 10000) revert(); // Max 100%
+        fee = _newFee;
+    }
+
+    function withdraw(uint256 amount) external {
+        uint256 assets = previewWithdraw(amount);
+        uint256 feeAmount = (assets * fee) / 10000;
+        uint256 finalAmount = assets - feeAmount;
+
+        //@task should transfer fee to feeReciver (if it's implemented)
+        
+        _burn(msg.sender, amount);
+        
+        Message memory message = Message({
+            msgType: 3, // 3 is msg type for withdrawals
+            amount: finalAmount,
+            messageCreator: address(this),
+            sourceChain: uint16(block.chainid),
+            sourceUser: msg.sender
+        });
+        
+        bytes memory payload = abi.encode(message);
+        address multiChainVault = factory.chainIdToVault(actualChainId);
+        IAmbImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
+    }
+
+    function finalizeWithdraw(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external override onlyAmbImplementation(msg.sender) {
+        Message memory message = abi.decode(payload, (Message));
+        require(message.msgType == 4, "Invalid message type for finalize withdraw");
+        address msgSourceUser = message.sourceUser;
+        uint256 amount = message.amount;
+        IERC20(asset()).transfer(msgSourceUser, amount);
+    }
+    
+    //@task i think it should be implemented in feeManager contract
+    // function withdrawFee() external {
+    //     if(msg.sender != feeReceiver) revert InvalidFeeReceiver();
+    //     uint256 feeBalance = IERC20(asset()).balanceOf(address(this));
+    //     if(feeBalance > 0) {
+    //         IERC20(asset()).transfer(feeReceiver, feeBalance);
+    //     }
+    // }
+
+    function setAmbImplementation(address _newAmbImplementation) external onlyRole(OWNER_ROLE) {
+        actualAmbImplementation = _newAmbImplementation;
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        // This should return the total assets managed across all chains
+        // For now, returning 0 as cross-chain asset tracking needs to be implemented
+        return 0;
+    }
+
+    function approveToken(address token, address spender, uint256 amount) external onlyRole(OWNER_ROLE) {
+        IERC20(token).approve(spender, amount);
+    }
+
+    function revokeApproval(address token, address spender) external onlyRole(OWNER_ROLE) {
+        IERC20(token).approve(spender, 0);
     }
 
 
