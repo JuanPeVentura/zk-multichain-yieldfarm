@@ -45,7 +45,8 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
 
     uint32 private nonce;
 
-    mapping(address user => mapping(uint256 chainId => uint256 depositedAmount)) balance;
+    // mapping(address user => mapping(uint256 chainId => uint256 depositedAmount)) balance;
+    mapping(address user => uint16 chainid) actualUserChainId;
     mapping(address token => bool whitelisted) isTokenWhitelisted;
 
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
@@ -74,13 +75,13 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     }
     
 
-    constructor(address[] memory _owners, uint16 _initialChainId ,address _factory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router) ERC4626(IERC20(_asset)) ERC20("Vault Depositor", "vDEPOSIT") {
+    constructor(address[] memory _owners, uint16 _initialChainId ,address _factory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router, address _initialFeeReceiver) ERC4626(IERC20(_asset)) ERC20("Vault Depositor", "vDEPOSIT") {
         factory = IMultiChainVaultFactory(_factory);
         actualChainId = _initialChainId;
         actualAmbImplementation = _actualAmbImplementation;
         tokenBridge = ITokenBridge(_tokenBridge);
         uniswapV2Router = IUniswapV2Router02(uniswapV2Router);
-        grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        feeReceiver = _initialFeeReceiver;
         for(uint256 i = 0; i < _owners.length; ++i) {
             grantRole(OWNER_ROLE, _owners[i]);
         }
@@ -148,6 +149,10 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     }
 
 
+
+
+
+
     function whitelistToken(address token, bool whitelist) external onlyRole(OWNER_ROLE) {
         if(whitelist){
             require(isTokenWhitelisted[token] == false);
@@ -179,18 +184,30 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         fee = _newFee;
     }
 
+    function updateChainid(uint16 _chainid) external onlyRole(OWNER_ROLE) {
+        if(_chainid == actualChainId) {
+            revert();
+        }
+        if(_chainid == uint16(0)){
+            revert();
+        }
+        actualChainId = _chainid;
+    }
+
+
+
+
+
+
     function withdraw(uint256 amount) external {
         uint256 assets = previewWithdraw(amount);
-        uint256 feeAmount = (assets * fee) / 10000;
-        uint256 finalAmount = assets - feeAmount;
 
-        //@task should transfer fee to feeReciver (if it's implemented)
-        
+
         _burn(msg.sender, amount);
         
         Message memory message = Message({
             msgType: 3, // 3 is msg type for withdrawals
-            amount: finalAmount,
+            amount: amount,
             messageCreator: address(this),
             sourceChain: uint16(block.chainid),
             sourceUser: msg.sender
@@ -206,17 +223,61 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         require(message.msgType == 4, "Invalid message type for finalize withdraw");
         address msgSourceUser = message.sourceUser;
         uint256 amount = message.amount;
-        IERC20(asset()).transfer(msgSourceUser, amount);
+        uint256 feeAmount = (amount * fee) / 10000;
+        uint256 finalAmount = amount - feeAmount;
+        IERC20(asset()).transfer(feeReceiver, feeAmount);
+        IERC20(asset()).transfer(msgSourceUser, finalAmount);
     }
-    
-    //@task i think it should be implemented in feeManager contract
-    // function withdrawFee() external {
-    //     if(msg.sender != feeReceiver) revert InvalidFeeReceiver();
-    //     uint256 feeBalance = IERC20(asset()).balanceOf(address(this));
-    //     if(feeBalance > 0) {
-    //         IERC20(asset()).transfer(feeReceiver, feeBalance);
-    //     }
-    // }
+
+    function migrateChain() external {
+        if(actualUserChainId[msg.sender] == actualChainId) {
+            revert(); /** user have already updated chain */
+        }
+        uint256 sharesOldChain = IERC20(address(this)).balanceOf(msg.sender);
+        _burn(msg.sender, sharesOldChain);
+        //@task make shares non transferible
+
+        Message memory message = Message({
+            msgType: 5, // 5 is msg type for withdrawals changing chain
+            amount: sharesOldChain,
+            messageCreator: address(this),
+            sourceChain: uint16(block.chainid),
+            sourceUser: msg.sender
+        });
+        
+        bytes memory payload = abi.encode(message);
+        address multiChainVault = factory.chainIdToVault(actualChainId);
+        IAmbImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
+        
+        // 1. Withdraw funds from old chain and all the strategies and burn old chain vault shares
+        // a. burn all user's shares
+        // b. receive message 
+        // 2. deposit on new chain and mint new chain vault shares
+    }
+
+    function finalizeChainUpdate(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external {
+        Message memory message = abi.decode(payload, (Message));
+        require(message.msgType == 5, "Invalid message type for finalize withdraw");
+        address msgSourceUser = message.sourceUser;
+        uint256 amount = message.amount;
+
+        uint16 chainId = actualChainId;
+        IERC20(asset()).approve(address(tokenBridge), amount);
+        tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
+
+        // Send croos chain payload to dst chain using some amb implementation
+        message = Message({
+            msgType: 1, // 1 is msg type for deposits
+            amount: amount,
+            messageCreator: address(this),
+            sourceChain: uint16(block.chainid),
+            sourceUser: msg.sender
+        });
+        bytes memory payload = abi.encode(message);
+        address multiChainVault = factory.chainIdToVault(chainId);
+        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
+    }
+
 
     function setAmbImplementation(address _newAmbImplementation) external onlyRole(OWNER_ROLE) {
         actualAmbImplementation = _newAmbImplementation;
