@@ -5,6 +5,7 @@ import "lib/wormhole-solidity-sdk/src/interfaces/IWormholeRelayer.sol";
 import "lib/wormhole-solidity-sdk/src/interfaces/IWormholeReceiver.sol";
 import {IAmbImplementation} from "../IAmbImplementation.sol";
 import {IMultiChainVault} from "../../interfaces/IMultiChainVault.sol";
+import {IVaultDepositor} from "../../interfaces/IVaultDepositor.sol";
 
 contract WormoleImplementation is IAmbImplementation {
 
@@ -99,7 +100,7 @@ contract WormoleImplementation is IAmbImplementation {
             /** @task should implement function that return multiChainVault, passing the chainID */
             IMultiChainVault(address(0)).processOp(message, sourceChain);
         } else if(t == 2) {
-            
+            IVaultDepositor(vaultDepositor).finalizeDeposit(payload,sourceAddress, sourceChain);
         }
 
         // Example use of sourceChain for logging

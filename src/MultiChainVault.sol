@@ -25,18 +25,19 @@ contract MultiChainVault is ERC4626 {
         uint8 messageType = message.msgType;
         uint256 amount = message.amount;
         uint16 msgSourceChain = message.sourceChain;
+        address msgSourceUser = message.sourceUser;
 
         if(sourceChain != msgSourceChain) {
             revert();
         }
 
         if(messageType == 1 /** deposit message */) {
-            _deposit(amount, sourceChain);
+            _deposit(amount, sourceChain, msgSourceUser);
         } 
     } 
 
 
-    function _deposit(uint256 amount, uint16 sourceChain) internal override {
+    function _deposit(uint256 amount, uint16 sourceChain, address msgSourceUser) internal override {
         if(IERC20(_asset).balanceOf(address(this)) < amount) {
             revert();
         }
@@ -45,7 +46,8 @@ contract MultiChainVault is ERC4626 {
             msgType: 2, // 2-> shares minting
             amount: _convertToShares(amount),// shares to mint 
             messageCreator: address(this),
-            sourceChain: block.chainid
+            sourceChain: block.chainid,
+            sourceUser: msgSourceUser
         });
 
         bytes payload = abi.encode(message);

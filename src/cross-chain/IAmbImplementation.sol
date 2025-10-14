@@ -10,6 +10,7 @@ interface IAmbImplementation {
         uint256 amount; // per chain
         address messageCreator;
         uint16 sourceChain;
+        address sourceUser;
     }
 
     //////////////////////////////////////////////////////////////

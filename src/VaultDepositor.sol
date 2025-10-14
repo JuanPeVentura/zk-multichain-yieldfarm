@@ -8,13 +8,14 @@ import {AccessControl} from "lib/openzeppelin-contracts/contracts/access/AccessC
 
 // ----------------- Interface Imports -----------------
 
+import {IVaultDepositor} from "./interfaces/IVaultDepositor.sol";
 import {IMultiChainVaultFactory} from "./interfaces/IMultiChainVaultFactory.sol";
 import {IMultiChainVault} from "./interfaces/IMultiChainVault.sol";
-import {IAmbImplementation} from "./cross-chain/IAmbImplementation.sol";
+import {IAmbImplementation, Message} from "./cross-chain/IAmbImplementation.sol";
 import {ITokenBridge} from "lib/wormhole-solidity-sdk/src/interfaces/ITokenBridge.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router.sol";
 
-contract VaultDepositor is ERC4626, AccessControl{
+contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
 
     /**
      * @dev This one is the main contracts, este, desplegado en la main chain del protocolo (e.g polygon), interactua con cada vault de cada chain, dependiendo de cual chains estan seleccionadas (obtenidas off chain) 
@@ -22,12 +23,6 @@ contract VaultDepositor is ERC4626, AccessControl{
      * 
      */
 
-    struct Message {
-        uint8 msgType; // 1 -> deposit, 2 -> withdraw
-        uint256 amount; // per chain
-        address messageCreator;
-        uint16 sourceChain;
-    }
     /** @dev El multi chain vault factory despliega multiChainVault usando create2. 
      *  Relaciona cada vault con su chainId correspondiente, en un mapping.
      **/
@@ -114,8 +109,9 @@ contract VaultDepositor is ERC4626, AccessControl{
         Message memory message = Message({
             msgType: 1, // 1 is msg type for deposits
             amount: amount,
-            messageCreator: msg.sender,
-            sourceChain: uint16(block.chainid)
+            messageCreator: address(this),
+            sourceChain: uint16(block.chainid),
+            sourceUser: msg.sender
         });
         bytes memory payload = abi.encode(message);
         IAmbImplementation(actualAmbImplementation).sendMessage(chainId, address(0), payload); // this is the modular implementation, it's brings
@@ -124,10 +120,12 @@ contract VaultDepositor is ERC4626, AccessControl{
 
 
     //Should be called once the cross-chain message is processed on the other chain
-    function finalizeDeposit(bytes memory payload,
-        bytes[] memory,
-        bytes32 sourceAddress,
-        uint16 sourceChain) {}
+    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external {
+        Message message = abi.decode(payload, (Message));
+        address msgSourceUser = message.sourceUser;
+        uint256 amount = message.amount;
+        _mint(msgSourceUser, amount);
+    }
 
 
     function whitelistToken(address token, bool whitelist) external onlyOwner(msg.sender) {
