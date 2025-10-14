@@ -3,8 +3,9 @@ pragma solidity  ^0.8.18;
 
 // ----------------- Openzeppelin Imports -----------------
 
-import {ERC4626} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
+import {ERC4626, ERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import {AccessControl} from "lib/openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 // ----------------- Interface Imports -----------------
 
@@ -26,7 +27,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     /** @dev El multi chain vault factory despliega multiChainVault usando create2. 
      *  Relaciona cada vault con su chainId correspondiente, en un mapping.
      **/
-    IMultiChainVaultFactory multiChainVaultFactory;
+    IMultiChainVaultFactory factory;
     ITokenBridge tokenBridge;
     IUniswapV2Router02 uniswapV2Router;
     /**
@@ -60,10 +61,18 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         if(!hasRole(OWNER_ROLE, account)) {
             revert();
         }
+        _;
     }
 
-    constructor(uint16 memory _initialChainId,address[] _owners ,address _multiChainVaultFactory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router) ERC4626(_asset) {
-        multiChainVaultFactory = IMultiChainVaultFactory(_multiChainVaultFactory);
+    modifier onlyAmbImplementation(address account) {
+        if(account != actualAmbImplementation) {
+            revert();
+        }
+        _;
+    }
+
+    constructor(address[] memory _owners, uint16 _initialChainId ,address _factory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router) ERC4626(IERC20(_asset)) ERC20("Vault Depositor", "vDEPOSIT") {
+        factory = IMultiChainVaultFactory(_factory);
         actualChainId = _initialChainId;
         actualAmbImplementation = _actualAmbImplementation;
         tokenBridge = ITokenBridge(_tokenBridge);
@@ -82,7 +91,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
      */
 
     function deposit(uint256 amount,address token ,address receiver) public  override {
-        if(!isTokenWhitelisted) {
+        if(!isTokenWhitelisted[token]) {
             revert(); // @task create custom error
         }
 
@@ -96,14 +105,14 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
 
 
         // Swaping token for the vault (address this) asset
-        address[] path = new address[](2);
+        address[] memory path = new address[](2);
         path[0] = token;
-        path[1] = asset;
+        path[1] = asset();
         uniswapV2Router.swapExactTokensForTokens(amount, 0, path, address(this), block.timestamp);
 
 
         // Bridging tokens using wormhole 
-        tokenBridge.transferTokens(asset, amountToChain, chainId, bytes32(0), 0, nonce++);
+        tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
 
         // Send croos chain payload to dst chain using some amb implementation
         Message memory message = Message({
@@ -114,14 +123,15 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
             sourceUser: msg.sender
         });
         bytes memory payload = abi.encode(message);
-        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, address(0), payload); // this is the modular implementation, it's brings
+        address multiChainVault = factory.chainIdToVault(chainId);
+        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
     }
 
 
 
     //Should be called once the cross-chain message is processed on the other chain
-    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external {
-        Message message = abi.decode(payload, (Message));
+    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation(msg.sender) {
+        Message memory message = abi.decode(payload, (Message));
         address msgSourceUser = message.sourceUser;
         uint256 amount = message.amount;
         _mint(msgSourceUser, amount);

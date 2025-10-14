@@ -4,14 +4,15 @@ pragma solidity ^0.8.23;
 /// @title IAmbImplementation
 /// @dev Interface for arbitrary message bridge (AMB) implementations
 /// @author ZeroPoint Labs
+struct Message {
+    uint8 msgType; // 1 -> deposit, 2 -> withdraw
+    uint256 amount; // per chain
+    address messageCreator;
+    uint16 sourceChain;
+    address sourceUser;
+}
 interface IAmbImplementation {
-    struct Message {
-        uint8 msgType; // 1 -> deposit, 2 -> withdraw
-        uint256 amount; // per chain
-        address messageCreator;
-        uint16 sourceChain;
-        address sourceUser;
-    }
+
 
     //////////////////////////////////////////////////////////////
     //                      AMB  ERRORS                         //

@@ -3,9 +3,10 @@ pragma solidity ^0.8.18;
 
 import "lib/wormhole-solidity-sdk/src/interfaces/IWormholeRelayer.sol";
 import "lib/wormhole-solidity-sdk/src/interfaces/IWormholeReceiver.sol";
-import {IAmbImplementation} from "../IAmbImplementation.sol";
+import {IAmbImplementation, Message} from "../IAmbImplementation.sol";
 import {IMultiChainVault} from "../../interfaces/IMultiChainVault.sol";
 import {IVaultDepositor} from "../../interfaces/IVaultDepositor.sol";
+import {IMultiChainVaultFactory} from "../../interfaces/IMultiChainVaultFactory.sol";
 
 contract WormoleImplementation is IAmbImplementation {
 
@@ -13,6 +14,7 @@ contract WormoleImplementation is IAmbImplementation {
     IWormholeRelayer internal wormholeRelayer;
     uint256 constant GAS_LIMIT = 50000;
     address vaultDepositor;
+    address factory;
     address public registrationOwner;
     mapping(uint16 => bytes32) public registeredSenders;
 
@@ -20,10 +22,11 @@ contract WormoleImplementation is IAmbImplementation {
     event MessageReceived(Message message);
     event SourceChainLogged(uint16 sourceChain);
 
-    constructor(address _wormholeRelayer, address _vaultDepositor) {
+    constructor(address _wormholeRelayer, address _vaultDepositor, address _factory) {
         wormholeRelayer = IWormholeRelayer(_wormholeRelayer);
         vaultDepositor = _vaultDepositor;
         registrationOwner = msg.sender;
+        factory = _factory;
     }
 
     function quoteCrossChainCost(
@@ -98,7 +101,8 @@ contract WormoleImplementation is IAmbImplementation {
 
         if(t != 0 /** It's a operation */ && t != 2) {
             /** @task should implement function that return multiChainVault, passing the chainID */
-            IMultiChainVault(address(0)).processOp(message, sourceChain);
+            address multiChainVault = IMultiChainVaultFactory(factory).chainIdToVault(message.sourceChain);
+            IMultiChainVault(multiChainVault).processOp(message, sourceChain);
         } else if(t == 2) {
             IVaultDepositor(vaultDepositor).finalizeDeposit(payload,sourceAddress, sourceChain);
         }

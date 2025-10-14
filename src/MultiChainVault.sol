@@ -3,8 +3,10 @@ pragma solidity  ^0.8.18;
 
 // ----------------- Openzeppelin Imports -----------------
 
-import {ERC4626} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
+import {ERC4626, ERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import {AccessControl} from "lib/openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 // ----------------- Interface Imports -----------------
 
@@ -16,7 +18,7 @@ contract MultiChainVault is ERC4626 {
     address vaultDepositor;
 
     //@task should replace it for initialize because it can't be deployed with create2 if it has a constructor.
-    constructor(address _asset, address _actualAmbImplementation, address _vaultDepositor) ERC4626(_asset) {
+    constructor(address _asset, address _actualAmbImplementation, address _vaultDepositor) ERC4626(IERC20(_asset)) ERC20("MultiChain Vault", "mVault") {
         actualAmbImplementation = _actualAmbImplementation;
         vaultDepositor = _vaultDepositor;
     }
@@ -37,20 +39,20 @@ contract MultiChainVault is ERC4626 {
     } 
 
 
-    function _deposit(uint256 amount, uint16 sourceChain, address msgSourceUser) internal override {
-        if(IERC20(_asset).balanceOf(address(this)) < amount) {
+    function _deposit(uint256 amount, uint16 sourceChain, address msgSourceUser) internal {
+        if(IERC20(asset()).balanceOf(address(this)) < amount) {
             revert();
         }
         //@task depositar en estrategias
-        Message message = new Message({
+        Message memory message = Message({
             msgType: 2, // 2-> shares minting
-            amount: _convertToShares(amount),// shares to mint 
+            amount: _convertToShares(amount, Math.Rounding.Floor),// shares to mint 
             messageCreator: address(this),
-            sourceChain: block.chainid,
+            sourceChain: uint16(block.chainid),
             sourceUser: msgSourceUser
         });
 
-        bytes payload = abi.encode(message);
+        bytes memory payload = abi.encode(message);
         IAmbImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
 
     }
