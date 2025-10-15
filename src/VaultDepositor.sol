@@ -95,6 +95,173 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
      */
 
     function deposit(uint256 amount,address token ,address receiver) public  override {
+        if(actualUserChainId[sourceAddress] != 0 && actualUserChainId[sourceAddress] != actualChainId) {
+            revert();
+        } 
+        _deposit(amount, token, receiver, msg.sender);
+    }
+
+    //Should be called once the cross-chain message is processed on the other chain
+    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation(msg.sender) {
+        Message memory message = abi.decode(payload, (Message));
+        if(message.msgType != 2) {
+            revert();
+        }
+        address msgSourceUser = message.sourceUser;
+        uint256 amount = message.amount;
+        actualChainId[sourceAddress] = actualChainId;
+        _mint(msgSourceUser, amount);
+    }
+
+
+    function withdraw(uint256 amount) external {
+        if(actualUserChainId[msg.sender] != actualChainId) {
+            revert();
+        }
+        _withdraw(amount, false);
+    }
+
+
+    function finalizeWithdraw(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external override onlyAmbImplementation(msg.sender) {
+        Message memory message = abi.decode(payload, (Message));
+        require(message.msgType == 4, "Invalid message type for finalize withdraw");
+        address msgSourceUser = message.sourceUser;
+        uint256 amount = message.amount;
+        uint256 feeAmount = (amount * fee) / 10000;
+        uint256 finalAmount = amount - feeAmount;
+        IERC20(asset()).transfer(feeReceiver, feeAmount);
+        IERC20(asset()).transfer(msgSourceUser, finalAmount);
+    }
+
+
+    //** Chain Migration funcions should be called by the user to update chain */
+
+
+    function migrateChain() external {
+        if(actualUserChainId[msg.sender] == actualChainId) {
+            revert(); /** user have already updated chain */
+        }
+        uint256 sharesOldChain = IERC20(address(this)).balanceOf(msg.sender);
+        _withdraw(sharesOldChain, true);
+    }
+
+    function finalizeChainMigration(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external {
+        Message memory message = abi.decode(payload, (Message));
+        require(message.msgType == 6, "Invalid message type for finalize chain update");
+        address msgSourceUser = message.sourceUser;
+        uint256 amount = message.amount;
+
+        uint16 chainId = actualChainId;
+        IERC20(asset()).approve(address(tokenBridge), amount);
+        tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
+
+        // Send croos chain payload to dst chain using some amb implementation
+        message = Message({
+            msgType: 1, // 1 is msg type for deposits
+            amount: amount,
+            messageCreator: address(this),
+            sourceChain: uint16(block.chainid),
+            sourceUser: sourceAddress
+        });
+        bytes memory payload = abi.encode(message);
+        address multiChainVault = factory.chainIdToVault(chainId);
+        actualChainId[sourceAddress] = actualChainId;
+        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
+    }
+
+    /** Chain migration function, should be called by the owner to update chain id */
+
+    function setChainid(uint16 _chainid) external onlyRole(OWNER_ROLE) {
+        if(actualChainId == _chainid){
+            return;
+        }
+        
+        actualChainId = _chainid;
+    }
+
+
+
+    /** External functions */
+
+    function setAmbImplementation(address _newAmbImplementation) external onlyRole(OWNER_ROLE) {
+        actualAmbImplementation = _newAmbImplementation;
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        // This should return the total assets managed across all chains
+        // For now, returning 0 as cross-chain asset tracking needs to be implemented
+        return 0;
+    }
+
+    function approveToken(address token, address spender, uint256 amount) external onlyRole(OWNER_ROLE) {
+        IERC20(token).approve(spender, amount);
+    }
+
+    function revokeApproval(address token, address spender) external onlyRole(OWNER_ROLE) {
+        IERC20(token).approve(spender, 0);
+    }
+
+    function whitelistToken(address token, bool whitelist) external onlyRole(OWNER_ROLE) {
+        if(whitelist){
+            require(isTokenWhitelisted[token] == false);
+            isTokenWhitelisted[token] = true;
+            return;
+        }
+
+        require(isTokenWhitelisted[token] == true);
+        isTokenWhitelisted[token] = false;
+    }
+
+    
+
+    function setFeeReceiver(address _newFeeReceiver) external onlyRole(OWNER_ROLE) {
+        if(_newFeeReceiver == address(0)) revert InvalidFeeReceiver();
+        feeReceiver = _newFeeReceiver;
+    }
+
+
+    //@task this is going to be managed by the dao
+    function setFee(uint256 _newFee) external onlyRole(OWNER_ROLE) {
+        if(_newFee > 10000) revert(); // Max 100%
+        fee = _newFee;
+    }
+
+    function updateChainid(uint16 _chainid) external onlyRole(OWNER_ROLE) {
+        if(_chainid == actualChainId) {
+            revert();
+        }
+        if(_chainid == uint16(0)){
+            revert();
+        }
+        actualChainId = _chainid;
+    }
+
+
+
+
+    /** Interrnal functions */
+
+
+    function _withdraw(uint256 amount, bool isChainMigration) internal {
+        uint256 assets = previewWithdraw(amount);
+
+
+        _burn(msg.sender, amount);
+        
+        Message memory message = Message({
+            msgType: isChainMigration ? 5 : 3, // 3 is msg type for withdrawals and 5 for chain migrations
+            amount: amount,
+            messageCreator: address(this),
+            sourceChain: uint16(block.chainid),
+            sourceUser: msg.sender
+        });
+        
+        bytes memory payload = abi.encode(message);
+        address multiChainVault = factory.chainIdToVault(actualChainId);
+        IAmbImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
+    }
+
+    function _deposit(uint256 amount,address token ,address receiver, address onBehalfOf) internal {
         if(!isTokenWhitelisted[token]) {
             revert(); // @task create custom error
         }
@@ -128,174 +295,10 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
             amount: amount,
             messageCreator: address(this),
             sourceChain: uint16(block.chainid),
-            sourceUser: msg.sender
+            sourceUser: onBehalfOf
         });
         bytes memory payload = abi.encode(message);
         address multiChainVault = factory.chainIdToVault(chainId);
         IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
     }
-
-
-
-    //Should be called once the cross-chain message is processed on the other chain
-    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation(msg.sender) {
-        Message memory message = abi.decode(payload, (Message));
-        if(message.msgType != 2) {
-            revert();
-        }
-        address msgSourceUser = message.sourceUser;
-        uint256 amount = message.amount;
-        _mint(msgSourceUser, amount);
-    }
-
-
-
-
-
-
-    function whitelistToken(address token, bool whitelist) external onlyRole(OWNER_ROLE) {
-        if(whitelist){
-            require(isTokenWhitelisted[token] == false);
-            isTokenWhitelisted[token] = true;
-            return;
-        }
-
-        require(isTokenWhitelisted[token] == true);
-        isTokenWhitelisted[token] = false;
-    }
-
-    function setChainid(uint16 _chainid) external onlyRole(OWNER_ROLE) {
-        if(actualChainId == _chainid){
-            return;
-        }
-        
-        actualChainId = _chainid;
-    }
-
-    function setFeeReceiver(address _newFeeReceiver) external onlyRole(OWNER_ROLE) {
-        if(_newFeeReceiver == address(0)) revert InvalidFeeReceiver();
-        feeReceiver = _newFeeReceiver;
-    }
-
-
-    //@task this is going to be managed by the dao
-    function setFee(uint256 _newFee) external onlyRole(OWNER_ROLE) {
-        if(_newFee > 10000) revert(); // Max 100%
-        fee = _newFee;
-    }
-
-    function updateChainid(uint16 _chainid) external onlyRole(OWNER_ROLE) {
-        if(_chainid == actualChainId) {
-            revert();
-        }
-        if(_chainid == uint16(0)){
-            revert();
-        }
-        actualChainId = _chainid;
-    }
-
-
-
-
-
-
-    function withdraw(uint256 amount) external {
-        uint256 assets = previewWithdraw(amount);
-
-
-        _burn(msg.sender, amount);
-        
-        Message memory message = Message({
-            msgType: 3, // 3 is msg type for withdrawals
-            amount: amount,
-            messageCreator: address(this),
-            sourceChain: uint16(block.chainid),
-            sourceUser: msg.sender
-        });
-        
-        bytes memory payload = abi.encode(message);
-        address multiChainVault = factory.chainIdToVault(actualChainId);
-        IAmbImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
-    }
-
-    function finalizeWithdraw(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external override onlyAmbImplementation(msg.sender) {
-        Message memory message = abi.decode(payload, (Message));
-        require(message.msgType == 4, "Invalid message type for finalize withdraw");
-        address msgSourceUser = message.sourceUser;
-        uint256 amount = message.amount;
-        uint256 feeAmount = (amount * fee) / 10000;
-        uint256 finalAmount = amount - feeAmount;
-        IERC20(asset()).transfer(feeReceiver, feeAmount);
-        IERC20(asset()).transfer(msgSourceUser, finalAmount);
-    }
-
-    function migrateChain() external {
-        if(actualUserChainId[msg.sender] == actualChainId) {
-            revert(); /** user have already updated chain */
-        }
-        uint256 sharesOldChain = IERC20(address(this)).balanceOf(msg.sender);
-        _burn(msg.sender, sharesOldChain);
-        //@task make shares non transferible
-
-        Message memory message = Message({
-            msgType: 5, // 5 is msg type for withdrawals changing chain
-            amount: sharesOldChain,
-            messageCreator: address(this),
-            sourceChain: uint16(block.chainid),
-            sourceUser: msg.sender
-        });
-        
-        bytes memory payload = abi.encode(message);
-        address multiChainVault = factory.chainIdToVault(actualChainId);
-        IAmbImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
-        
-        // 1. Withdraw funds from old chain and all the strategies and burn old chain vault shares
-        // a. burn all user's shares
-        // b. receive message 
-        // 2. deposit on new chain and mint new chain vault shares
-    }
-
-    function finalizeChainUpdate(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external {
-        Message memory message = abi.decode(payload, (Message));
-        require(message.msgType == 5, "Invalid message type for finalize withdraw");
-        address msgSourceUser = message.sourceUser;
-        uint256 amount = message.amount;
-
-        uint16 chainId = actualChainId;
-        IERC20(asset()).approve(address(tokenBridge), amount);
-        tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
-
-        // Send croos chain payload to dst chain using some amb implementation
-        message = Message({
-            msgType: 1, // 1 is msg type for deposits
-            amount: amount,
-            messageCreator: address(this),
-            sourceChain: uint16(block.chainid),
-            sourceUser: msg.sender
-        });
-        bytes memory payload = abi.encode(message);
-        address multiChainVault = factory.chainIdToVault(chainId);
-        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
-    }
-
-
-    function setAmbImplementation(address _newAmbImplementation) external onlyRole(OWNER_ROLE) {
-        actualAmbImplementation = _newAmbImplementation;
-    }
-
-    function totalAssets() public view override returns (uint256) {
-        // This should return the total assets managed across all chains
-        // For now, returning 0 as cross-chain asset tracking needs to be implemented
-        return 0;
-    }
-
-    function approveToken(address token, address spender, uint256 amount) external onlyRole(OWNER_ROLE) {
-        IERC20(token).approve(spender, amount);
-    }
-
-    function revokeApproval(address token, address spender) external onlyRole(OWNER_ROLE) {
-        IERC20(token).approve(spender, 0);
-    }
-
-
 }

@@ -7,7 +7,7 @@ interface IVaultDepositor {
     function migrateChain() external;
     function finalizeDeposit(bytes memory payload,bytes32 sourceAddress,uint16 sourceChain) external;
     function finalizeWithdraw(bytes memory payload,bytes32 sourceAddress,uint16 sourceChain) external;
-    function finalizeChainUpdate(bytes memory payload,bytes32 sourceAddress,uint16 sourceChain) external;
+    function finalizeChainMigration(bytes memory payload,bytes32 sourceAddress,uint16 sourceChain) external;
     function whitelistToken(address token, bool whitelist) external;
     function setChainid(uint16 _chainid) external;
     function updateChainid(uint16 _chainid) external;
