@@ -53,9 +53,8 @@ contract MultiChainVault is ERC4626, AccessControl {
         }
     }
 
-    /** EXTERNAL */
 
-    function processOp(Message memory message, uint16 sourceChain) external {
+    function processOp(Message memory message, uint16 sourceChain) public {
         uint8 messageType = message.msgType;
         uint256 amount = message.amount;
         uint16 msgSourceChain = message.sourceChain;
@@ -69,10 +68,13 @@ contract MultiChainVault is ERC4626, AccessControl {
             _deposit(amount, sourceChain, msgSourceUser);
         } else if(messageType == 3 /** withdraw message */) {
             _withdraw(amount, sourceChain, msgSourceUser);
+        } else if(messageType == 5) {
+            _manageChainMigration(amount, sourceChain, msgSourceUser);
         }
     } 
 
-    /** SETTERS */
+    
+    /** EXTERNAL */
     
      function addStrategy(address _strategy, uint256 _allocation) external onlyRole(OWNER_ROLE) {
         require(!isStrategy[_strategy], "Strategy already exists");
@@ -169,7 +171,7 @@ contract MultiChainVault is ERC4626, AccessControl {
         IAmbImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
     }
 
-    function _manageChainChange(uint256 amount, uint16 sourceChain, address msgSourceUser) internal {
+    function _manageChainMigration(uint256 amount, uint16 sourceChain, address msgSourceUser) internal {
         amount = _convertToAssets(amount, Math.Rounding.Floor);
         uint256 withdrawnAmount = 0;
         for (uint256 i = strategies.length; i > 0; i--) {
