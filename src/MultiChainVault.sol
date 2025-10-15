@@ -145,19 +145,7 @@ contract MultiChainVault is ERC4626, AccessControl {
 
     function _withdraw(uint256 amount, uint16 sourceChain, address msgSourceUser) internal {
         amount = _convertToAssets(amount, Math.Rounding.Floor);
-        uint256 withdrawnAmount = 0;
-        for (uint256 i = strategies.length; i > 0; i--) {
-            if (withdrawnAmount >= amount) {
-                break;
-            }
-            uint256 amountToWithdraw = amount - withdrawnAmount;
-            uint256 strategyDepositedFunds = IStrategy(strategies[i-1].addr).depositedAmount(msgSourceUser);
-            withdrawnAmount += strategyDepositedFunds + withdrawnAmount > amount ? amount - withdrawnAmount : strategyDepositedFunds;
-        }
-
-        if(withdrawnAmount < amount) {
-            revert(); // Not enough liquidity
-        }
+        uint256 withdrawnAmount = _withdrawFromStrategies(amount, msgSourceUser);
 
         Message memory message = Message({
             msgType: 4, // 4 -> finalize withdrawal
@@ -173,20 +161,8 @@ contract MultiChainVault is ERC4626, AccessControl {
 
     function _manageChainMigration(uint256 amount, uint16 sourceChain, address msgSourceUser) internal {
         amount = _convertToAssets(amount, Math.Rounding.Floor);
-        uint256 withdrawnAmount = 0;
-        for (uint256 i = strategies.length; i > 0; i--) {
-            if (withdrawnAmount >= amount) {
-                break;
-            }
-            // uint256 amountToWithdraw = amount - withdrawnAmount;
-            uint256 strategyDepositedFunds = IStrategy(strategies[i-1].addr).depositedAmount(msgSourceUser);
-            uint256 amountToWithdraw = strategyDepositedFunds + withdrawnAmount > amount ? amount - withdrawnAmount : strategyDepositedFunds;
-            withdrawnAmount += IStrategy(strategies[i-1].addr).withdraw(amountToWithdraw);
-        }
+        uint256 withdrawnAmount = _withdrawFromStrategies(amount, msgSourceUser);
 
-        if(withdrawnAmount < amount) {
-            revert(); // Not enough liquidity
-        }
 
         Message memory message = Message({
             msgType: 6, // 6 -> finalize chain update
@@ -198,5 +174,22 @@ contract MultiChainVault is ERC4626, AccessControl {
 
         bytes memory payload = abi.encode(message);
         IAmbImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
+    }
+
+    function _withdrawFromStrategies(uint256 amount, address user) internal returns(uint256 withdrawnAmount) {
+        for (uint256 i = strategies.length; i > 0; i--) {
+            if (withdrawnAmount >= amount) {
+                break;
+            }
+            // uint256 amountToWithdraw = amount - withdrawnAmount;
+            uint256 strategyDepositedFunds = IStrategy(strategies[i-1].addr).depositedAmount(user);
+            uint256 amountToWithdraw = strategyDepositedFunds + withdrawnAmount > amount ? amount - withdrawnAmount : strategyDepositedFunds;
+            withdrawnAmount += IStrategy(strategies[i-1].addr).withdraw(amountToWithdraw);
+            
+        }
+        if(withdrawnAmount < amount) {
+            revert(); // Not enough liquidity
+        }
+        
     }
 }
