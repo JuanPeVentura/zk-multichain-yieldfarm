@@ -108,7 +108,7 @@ contract WormoleImplementation is IAmbImplementation {
         } else if(t == 4) {
             IVaultDepositor(vaultDepositor).finalizeWithdraw(payload,sourceAddress, sourceChain);
         } else if(t == 6) {
-            IVaultDepositor(vaultDepositor).finalizeChainUpdate(payload,sourceAddress, sourceChain);
+            IVaultDepositor(vaultDepositor).finalizeChainMigration(payload,sourceAddress, sourceChain);
         }
 
         // Example use of sourceChain for logging

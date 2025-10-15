@@ -39,7 +39,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     uint256 constant MIN_AMOUNT = 1e6;
     uint256 constant TOTAL_RATIO = 100;
 
-    address public actualAmbImplementation;
+    address private actualAmbImplementation;
 
     uint256 GAS_LIMIT = 500_000;
 
@@ -67,8 +67,8 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
 
 
 
-    modifier onlyAmbImplementation(address account) {
-        if(account != actualAmbImplementation) {
+    modifier onlyAmbImplementation() {
+        if(msg.sender != actualAmbImplementation) {
             revert();
         }
         _;
@@ -95,21 +95,22 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
      */
 
     function deposit(uint256 amount,address token ,address receiver) public  override {
-        if(actualUserChainId[sourceAddress] != 0 && actualUserChainId[sourceAddress] != actualChainId) {
+        if(actualUserChainId[msg.sender] != 0 && actualUserChainId[msg.sender] != actualChainId) {
             revert();
         } 
         _deposit(amount, token, receiver, msg.sender);
     }
 
     //Should be called once the cross-chain message is processed on the other chain
-    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation(msg.sender) {
+    function finalizeDeposit(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation() {
         Message memory message = abi.decode(payload, (Message));
+        address user = address(uint160(uint256(sourceAddress)));
         if(message.msgType != 2) {
             revert();
         }
         address msgSourceUser = message.sourceUser;
         uint256 amount = message.amount;
-        actualChainId[sourceAddress] = actualChainId;
+        actualUserChainId[user] = actualChainId;
         _mint(msgSourceUser, amount);
     }
 
@@ -122,7 +123,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     }
 
 
-    function finalizeWithdraw(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external override onlyAmbImplementation(msg.sender) {
+    function finalizeWithdraw(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external override onlyAmbImplementation() {
         Message memory message = abi.decode(payload, (Message));
         require(message.msgType == 4, "Invalid message type for finalize withdraw");
         address msgSourceUser = message.sourceUser;
@@ -145,7 +146,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         _withdraw(sharesOldChain, true);
     }
 
-    function finalizeChainMigration(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external {
+    function finalizeChainMigration(bytes memory payload, bytes32 sourceAddress, uint16 sourceChain) external onlyAmbImplementation(){
         Message memory message = abi.decode(payload, (Message));
         require(message.msgType == 6, "Invalid message type for finalize chain update");
         address msgSourceUser = message.sourceUser;
@@ -154,6 +155,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         uint16 chainId = actualChainId;
         IERC20(asset()).approve(address(tokenBridge), amount);
         tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
+        address user = address(uint160(uint256(sourceAddress)));
 
         // Send croos chain payload to dst chain using some amb implementation
         message = Message({
@@ -161,11 +163,11 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
             amount: amount,
             messageCreator: address(this),
             sourceChain: uint16(block.chainid),
-            sourceUser: sourceAddress
+            sourceUser: user
         });
         bytes memory payload = abi.encode(message);
         address multiChainVault = factory.chainIdToVault(chainId);
-        actualChainId[sourceAddress] = actualChainId;
+        actualUserChainId[user] = actualChainId;
         IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
     }
 
