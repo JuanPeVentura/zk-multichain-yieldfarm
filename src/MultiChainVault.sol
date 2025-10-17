@@ -20,12 +20,14 @@ contract MultiChainVault is ERC4626, AccessControl {
     struct Strategy {
         address addr;
         uint256 allocation;
+        uint256 stId;
     }
     bytes32 public constant OWNER_ROLE = keccak256("OWNER_ROLE");
 
     address public actualAmbImplementation;
     address vaultDepositor;
     uint256 public totalAllocation;
+    uint256 stId;
 
 
     /** Strategies data */
@@ -80,9 +82,11 @@ contract MultiChainVault is ERC4626, AccessControl {
         require(!isStrategy[_strategy], "Strategy already exists");
         require(_allocation > 0, "Allocation must be greater than 0");
         require(totalAllocation + _allocation <= 100, "Total allocation cannot exceed 100");
-
-        strategies.push(Strategy({addr: _strategy, allocation: _allocation}));
+        uint256 newStId = ++stId;
+        Strategy memory strategy = Strategy({addr: _strategy, allocation: _allocation, stId: newStId});
+        strategies.push(strategy);
         isStrategy[_strategy] = true;
+        idToStrategy[newStId] = strategy;
         totalAllocation += _allocation;
     }
 
@@ -95,24 +99,23 @@ contract MultiChainVault is ERC4626, AccessControl {
                 strategies[i] = strategies[strategies.length - 1];
                 strategies.pop();
                 isStrategy[_strategy] = false;
+                idToStrategy[strategies[i].stId] =  Strategy({addr: address(0), allocation: 0, stId: 0});
                 break;
             }
         }
     }
 
-    function updateStrategyAllocation(address _strategy, uint256 _newAllocation) external onlyRole(OWNER_ROLE) {
-        require(isStrategy[_strategy], "Strategy does not exist");
+    function updateStrategyAllocation(uint256 _stId, uint256 _newAllocation) external onlyRole(OWNER_ROLE) {
+        Strategy storage strategy = idToStrategy[_stId];
+        require(isStrategy[strategy.addr], "Strategy does not exist");
         require(_newAllocation > 0, "Allocation must be greater than 0");
+        require(_stId > 0, "stId must be greater than 0");
 
-        for (uint256 i = 0; i < strategies.length; i++) {
-            if (strategies[i].addr == _strategy) {
-                uint256 oldAllocation = strategies[i].allocation;
-                require(totalAllocation - oldAllocation + _newAllocation <= 100, "Total allocation cannot exceed 100");
-                strategies[i].allocation = _newAllocation;
-                totalAllocation = totalAllocation - oldAllocation + _newAllocation;
-                break;
-            }
-        }
+
+        uint256 oldAllocation = strategy.allocation;
+        require(totalAllocation - oldAllocation + _newAllocation <= 100, "Total allocation cannot exceed 100");
+        strategy.allocation = _newAllocation;
+        totalAllocation = totalAllocation - oldAllocation + _newAllocation;
     }
 
 
@@ -126,7 +129,8 @@ contract MultiChainVault is ERC4626, AccessControl {
 
         for (uint256 i = 0; i < strategies.length; i++) {
             uint256 amountToInvest = amount * strategies[i].allocation / 100;
-            IERC20(asset()).transfer(strategies[i].addr, amountToInvest);
+            IERC20(asset()).approve(strategies[i].addr, amountToInvest);
+            IStrategy(strategies[i].addr).deposit(amountToInvest);
             //@task should implement strategy deposit
         }
         //@task depositar en estrategias

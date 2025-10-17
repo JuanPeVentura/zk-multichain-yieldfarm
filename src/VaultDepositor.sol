@@ -80,7 +80,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         actualChainId = _initialChainId;
         actualAmbImplementation = _actualAmbImplementation;
         tokenBridge = ITokenBridge(_tokenBridge);
-        uniswapV2Router = IUniswapV2Router02(uniswapV2Router);
+        uniswapV2Router = IUniswapV2Router02(_uniswapV2Router);
         feeReceiver = _initialFeeReceiver;
         for(uint256 i = 0; i < _owners.length; ++i) {
             grantRole(OWNER_ROLE, _owners[i]);
@@ -289,7 +289,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         // Bridging tokens using wormhole 
         //@task maybe here would be better to approve address(this).balance of the asset()
         IERC20(asset()).approve(address(tokenBridge), swappedAmount);
-        tokenBridge.transferTokens(asset(), amount, chainId, bytes32(0), 0, nonce++);
+        tokenBridge.transferTokens(asset(), swappedAmount, chainId, bytes32(0), 0, nonce++);
 
         // Send croos chain payload to dst chain using some amb implementation
         Message memory message = Message({
@@ -302,5 +302,28 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         bytes memory payload = abi.encode(message);
         address multiChainVault = factory.chainIdToVault(chainId);
         IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
+    }
+
+
+    /** Non transferable logic */
+
+    function transfer(address, uint256) public pure override(ERC20, IERC20)  returns (bool) {
+        revert();
+    }
+
+    function transferFrom(address, address, uint256) public pure override(ERC20, IERC20)  returns (bool) {
+        revert();
+    }
+
+    function approve(address, uint256) public pure override(ERC20, IERC20)  returns (bool) {
+        revert();
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (from != address(0) && to != address(0)) {
+            revert();
+        }
+
+        super._update(from, to, value);
     }
 }
