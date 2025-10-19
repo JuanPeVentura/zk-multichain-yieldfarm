@@ -55,6 +55,8 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
     address feeReceiver;
     uint256 fee;
 
+    address governor;
+
 
     //** Custom errors */
 
@@ -73,15 +75,24 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         }
         _;
     }
+
+    modifier onlyGovernor() {
+        if(msg.sender != governor) {
+            revert();
+        }
+        _;
+    }
+    
     
 
-    constructor(address[] memory _owners, uint16 _initialChainId ,address _factory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router, address _initialFeeReceiver) ERC4626(IERC20(_asset)) ERC20("Vault Depositor", "vDEPOSIT") {
+    constructor(address[] memory _owners, uint16 _initialChainId ,address _factory, address _actualAmbImplementation, address _tokenBridge,address _asset, address _uniswapV2Router, address _initialFeeReceiver, address _governor) ERC4626(IERC20(_asset)) ERC20("Vault Depositor", "vDEPOSIT") {
         factory = IMultiChainVaultFactory(_factory);
         actualChainId = _initialChainId;
         actualAmbImplementation = _actualAmbImplementation;
         tokenBridge = ITokenBridge(_tokenBridge);
         uniswapV2Router = IUniswapV2Router02(_uniswapV2Router);
         feeReceiver = _initialFeeReceiver;
+        governor = _governor;
         for(uint256 i = 0; i < _owners.length; ++i) {
             grantRole(OWNER_ROLE, _owners[i]);
         }
@@ -223,8 +234,9 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
 
 
     //@task this is going to be managed by the dao
-    function setFee(uint256 _newFee) external onlyRole(OWNER_ROLE) {
+    function setFee(uint256 _newFee) external onlyGovernor {
         if(_newFee > 10000) revert(); // Max 100%
+        if(_newFee < 300) revert(); // Max 100%
         fee = _newFee;
     }
 
