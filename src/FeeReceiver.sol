@@ -12,15 +12,19 @@ contract MultiChainVault is AccessControl {
     /** Events */
 
     event FundsTransfered(address indexed user, uint256 indexed amount);
+    address[] owners = new address[](2);
 
     constructor(address[] memory _owners) {
         for(uint256 i = 0; i < _owners.length; ++i) {
             grantRole(OWNER_ROLE, _owners[i]);
+            owners[i] = _owners[i];
         }
     }
 
-    function withdrawToken(address _token, uint256 _amount) external onlyRole(OWNER_ROLE) {
-        IERC20(_token).transfer(msg.sender, _amount);
-        emit FundsTransfered(msg.sender, _amount);
+    function withdrawToken(address _token) external onlyRole(OWNER_ROLE) {
+        uint256 balance = IERC20(_token).balanceOf(address(this));
+        IERC20(_token).transfer(owners[0], balance / 2);
+        IERC20(_token).transfer(owners[1], balance / 2 );
+        emit FundsTransfered(msg.sender, balance);
     }
 }
