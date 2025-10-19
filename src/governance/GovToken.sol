@@ -1,18 +1,36 @@
-//SPDX-License-Identifier: MIT
-pragma solidity  ^0.8.18;
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-import {ERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Votes.sol";
 
-contract GovToken is ERC20  {
-    address shareStaker;
-    constructor(address _shareStaker) ERC20("Governor token", "GVNTK") {
+contract GovToken is ERC20Votes {
+    address public shareStaker;
+
+    constructor(address _shareStaker)
+        ERC20("Governor Token", "GVNTK")
+        ERC20Permit("Governor Token") // Necesario para ERC20Votes
+    {
         shareStaker = _shareStaker;
     }
 
     function mint(address _user, uint256 _amount) external {
-        if(msg.sender != shareStaker) {
-            revert();
-        }
+        require(msg.sender == shareStaker, "Not authorized");
         _mint(_user, _amount);
+    }
+
+    // ✅ Overrides requeridos
+    function _afterTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal override(ERC20, ERC20Votes) {
+        super._afterTokenTransfer(from, to, amount);
+    }
+
+    function _mint(address to, uint256 amount) internal override(ERC20, ERC20Votes) {
+        super._mint(to, amount);
+    }
+
+    function _burn(address account, uint256 amount) internal override(ERC20, ERC20Votes) {
+        super._burn(account, amount);
     }
 }
