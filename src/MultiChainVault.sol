@@ -128,9 +128,12 @@ contract MultiChainVault is ERC4626, AccessControl {
         }
 
         for (uint256 i = 0; i < strategies.length; i++) {
-            uint256 amountToInvest = amount * strategies[i].allocation / 100;
-            IERC20(asset()).approve(strategies[i].addr, amountToInvest);
-            IStrategy(strategies[i].addr).deposit(amountToInvest);
+            if(strategies[i].allocation > 0) {
+                uint256 amountToInvest = amount * strategies[i].allocation / 100;
+                IERC20(asset()).approve(strategies[i].addr, amountToInvest);
+                IStrategy(strategies[i].addr).deposit(amountToInvest);
+            }
+
             //@task should implement strategy deposit
         }
         //@task depositar en estrategias
