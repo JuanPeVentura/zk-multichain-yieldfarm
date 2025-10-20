@@ -10,7 +10,7 @@ import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 // ----------------- Interface Imports -----------------
 
-import {IAmbImplementation, Message} from "./cross-chain/IAmbImplementation.sol";
+import {IAmbSenderImplementation, Message} from "./cross-chain/IAmbSenderImplementation.sol";
 import {ITokenBridge} from "lib/wormhole-solidity-sdk/src/interfaces/ITokenBridge.sol";
 
 import {IStrategy} from "./interfaces/IStrategy.sol";
@@ -146,7 +146,7 @@ contract MultiChainVault is ERC4626, AccessControl {
         });
 
         bytes memory payload = abi.encode(message);
-        IAmbImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
+        IAmbSenderImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
 
     }
 
@@ -163,7 +163,7 @@ contract MultiChainVault is ERC4626, AccessControl {
         });
 
         bytes memory payload = abi.encode(message);
-        IAmbImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
+        IAmbSenderImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
     }
 
     function _manageChainMigration(uint256 amount, uint16 sourceChain, address msgSourceUser) internal {
@@ -180,7 +180,7 @@ contract MultiChainVault is ERC4626, AccessControl {
         });
 
         bytes memory payload = abi.encode(message);
-        IAmbImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
+        IAmbSenderImplementation(actualAmbImplementation).sendMessage(sourceChain, vaultDepositor,  payload);
     }
 
     function _withdrawFromStrategies(uint256 amount, address user) internal returns(uint256 withdrawnAmount) {

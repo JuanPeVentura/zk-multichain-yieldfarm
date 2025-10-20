@@ -9,7 +9,16 @@ import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 /// @title ShareStaker
 /// @notice permit stake "shares" (ERC20/4626) and mint gov tokens as reward.
-abstract contract ShareStaker is IShareStaker {
+
+
+contract ShareStaker  {
+    struct Deposit {
+        uint256 amount;
+        uint256 lastDeposited;
+        uint256 lastRewarded;
+        uint256 pendingRewards;
+    }
+
     IERC20 shares;
 
     address public govToken;
@@ -22,9 +31,12 @@ abstract contract ShareStaker is IShareStaker {
     mapping(address user => Deposit deposit) deposits;
 
 
-    constructor(address _shares, address _govToken) {
-        shares=IERC20(_shares);
+    constructor(address _govToken) {
         govToken = _govToken;
+    }
+
+    function setShares(address _shares) external {
+        shares=IERC20(_shares);
     }
 
     function stake(uint256 amount) external {
@@ -51,7 +63,6 @@ abstract contract ShareStaker is IShareStaker {
         deposit.pendingRewards=0;
         if(toMint > 0) {
             GovToken(govToken).mint(_onBehalfOf, toMint);
-            emit RewardPaid(_onBehalfOf, toMint);
         }
     }   
 
@@ -81,7 +92,6 @@ abstract contract ShareStaker is IShareStaker {
         deposits[_onBehalfOf].lastDeposited = block.timestamp;
         deposits[_onBehalfOf].lastRewarded = block.timestamp;
         totalStaked+=amount;
-        emit Staked(_onBehalfOf, amount);
     }
 
     function _unstake(uint256 amount, address _onBehalfOf) internal {
@@ -92,7 +102,6 @@ abstract contract ShareStaker is IShareStaker {
         deposits[_onBehalfOf].amount -= amount;
         totalStaked-=amount;
         shares.transfer(_onBehalfOf, amount);
-        emit Unstaked(_onBehalfOf, amount);
     }
     
 
@@ -112,7 +121,6 @@ abstract contract ShareStaker is IShareStaker {
 
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + duration;
-        emit RewardAdded(amount);
     }
     
 

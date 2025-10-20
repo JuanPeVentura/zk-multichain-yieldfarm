@@ -79,19 +79,7 @@ interface IShareStaker {
     // View / read-only helpers
     // -----------------------------
 
-    /// @notice Balance de shares stakeados por `user`
-    /// @param user Dirección consultada
-    /// @return Cantidad de shares staked
-    function balanceOf(address user) external view returns (uint256);
 
-    /// @notice Cantidad total de shares stacked en el contrato
-    /// @return Total staked
-    function totalStaked() external view returns (uint256);
-
-    /// @notice Recompensas pendientes para `user` (gov tokens no reclamad@s)
-    /// @param user Dirección consultada
-    /// @return rewards Cantidad de gov tokens devengados
-    function earned(address user) external view returns (uint256 rewards);
 
     /// @notice Reward por token acumulado hasta ahora
     /// @return rewardPerToken Valor acumulado por token

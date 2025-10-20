@@ -12,7 +12,7 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {IVaultDepositor} from "./interfaces/IVaultDepositor.sol";
 import {IMultiChainVaultFactory} from "./interfaces/IMultiChainVaultFactory.sol";
 import {IMultiChainVault} from "./interfaces/IMultiChainVault.sol";
-import {IAmbImplementation, Message} from "./cross-chain/IAmbImplementation.sol";
+import {IAmbSenderImplementation, Message} from "./cross-chain/IAmbSenderImplementation.sol";
 import {ITokenBridge} from "lib/wormhole-solidity-sdk/src/interfaces/ITokenBridge.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router.sol";
 
@@ -179,7 +179,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         bytes memory payload = abi.encode(message);
         address multiChainVault = factory.chainIdToVault(chainId);
         actualUserChainId[user] = actualChainId;
-        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
+        IAmbSenderImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
     }
 
     /** Chain migration function, should be called by the owner to update chain id */
@@ -272,7 +272,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         
         bytes memory payload = abi.encode(message);
         address multiChainVault = factory.chainIdToVault(actualChainId);
-        IAmbImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
+        IAmbSenderImplementation(actualAmbImplementation).sendMessage(actualChainId, multiChainVault, payload);
     }
 
     function _deposit(uint256 amount,address token ,address receiver, address onBehalfOf) internal {
@@ -313,7 +313,7 @@ contract VaultDepositor is ERC4626, AccessControl, IVaultDepositor{
         });
         bytes memory payload = abi.encode(message);
         address multiChainVault = factory.chainIdToVault(chainId);
-        IAmbImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
+        IAmbSenderImplementation(actualAmbImplementation).sendMessage(chainId, multiChainVault, payload); // this is the modular implementation, it's brings
     }
 
 

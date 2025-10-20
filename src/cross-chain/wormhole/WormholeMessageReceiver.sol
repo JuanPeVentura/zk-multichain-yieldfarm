@@ -3,13 +3,13 @@ pragma solidity ^0.8.18;
 
 import "lib/wormhole-solidity-sdk/src/interfaces/IWormholeRelayer.sol";
 import "lib/wormhole-solidity-sdk/src/interfaces/IWormholeReceiver.sol";
-import {IAmbImplementation, Message} from "../IAmbImplementation.sol";
+import {IAmbReceiverImplementation} from "../IAmbReceiverImplementation.sol";
+import {Message} from "../IAmbSenderImplementation.sol";
 import {IMultiChainVault} from "../../interfaces/IMultiChainVault.sol";
 import {IVaultDepositor} from "../../interfaces/IVaultDepositor.sol";
 import {IMultiChainVaultFactory} from "../../interfaces/IMultiChainVaultFactory.sol";
 
-contract WormoleImplementation is IAmbImplementation {
-
+contract WormholeMessageReceiver is IAmbReceiverImplementation {
 
     IWormholeRelayer internal wormholeRelayer;
     uint256 constant GAS_LIMIT = 50000;
@@ -29,39 +29,6 @@ contract WormoleImplementation is IAmbImplementation {
         factory = _factory;
     }
 
-    function quoteCrossChainCost(
-        uint16 targetChain
-    ) public view returns (uint256 cost) {
-        (cost, ) = wormholeRelayer.quoteEVMDeliveryPrice(
-            targetChain,
-            0,
-            GAS_LIMIT
-        );
-    }
-
-    function sendMessage(
-        uint16 targetChain,
-        address targetAddress,
-        bytes memory message
-    ) external payable {
-        if(msg.sender != vaultDepositor) {
-            revert(); //@task añadir custom error
-        }
-        uint256 cost = quoteCrossChainCost(targetChain);
-
-        require(
-            msg.value >= cost,
-            "Insufficient funds for cross-chain delivery"
-        );
-
-        wormholeRelayer.sendPayloadToEvm{value: cost}(
-            targetChain,
-            targetAddress,
-            message,
-            0,
-            GAS_LIMIT
-        );
-    }
 
     modifier isRegisteredSender(uint16 sourceChain, bytes32 sourceAddress) {
         require(
@@ -83,12 +50,12 @@ contract WormoleImplementation is IAmbImplementation {
     }
 
     // Update receiveWormholeMessages to include the source address check
-    function receiveMessage(
+    function receiveWormholeMessages(
         bytes memory payload,
-        bytes[] memory,
+        bytes[] memory additionalMessages,
         bytes32 sourceAddress,
         uint16 sourceChain,
-        bytes32
+        bytes32 deliveryHash
     ) public payable override isRegisteredSender(sourceChain, sourceAddress) returns(Message memory message) {
         require(
             msg.sender == address(wormholeRelayer),
@@ -98,6 +65,7 @@ contract WormoleImplementation is IAmbImplementation {
         // Decode the payload to extract the message
         message = abi.decode(payload, (Message));
         uint8 t = message.msgType;
+
 
         if(t == 1 || t == 3 || t == 5) {
             /** @task should implement function that return multiChainVault, passing the chainID */
@@ -118,5 +86,7 @@ contract WormoleImplementation is IAmbImplementation {
 
         // Emit an event with the received message
         emit MessageReceived(message);
+
+        return message;
     }
 }

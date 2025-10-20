@@ -6,7 +6,12 @@ import {EIP712} from "lib/openzeppelin-contracts/contracts/utils/cryptography/EI
 
 contract GovToken is ERC20Votes  {
     address shareStaker;
-    constructor(address _shareStaker) ERC20("Governor token", "GVNTK") EIP712("Governor token", "1") {
+    constructor() ERC20("Governor token", "GVNTK") EIP712("Governor token", "1") {
+        
+    }
+
+    function setShareStaker(address _shareStaker) external {
+        /** @task add access control */
         shareStaker = _shareStaker;
     }
 
